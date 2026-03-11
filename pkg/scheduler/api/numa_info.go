@@ -63,6 +63,7 @@ type NumatopoInfo struct {
 	NumaResMap  map[string]*ResourceInfo
 	CPUDetail   topology.CPUDetails
 	ResReserved v1.ResourceList
+	GPUDetail   map[string]nodeinfov1alpha1.GPUInfo // GPU topology info
 }
 
 // DeepCopy used to copy NumatopoInfo
@@ -74,6 +75,7 @@ func (info *NumatopoInfo) DeepCopy() *NumatopoInfo {
 		NumaResMap:  make(map[string]*ResourceInfo),
 		CPUDetail:   topology.CPUDetails{},
 		ResReserved: make(v1.ResourceList),
+		GPUDetail:   make(map[string]nodeinfov1alpha1.GPUInfo),
 	}
 
 	policies := info.Policies
@@ -108,6 +110,11 @@ func (info *NumatopoInfo) DeepCopy() *NumatopoInfo {
 	resReserved := info.ResReserved
 	for resName, res := range resReserved {
 		numaInfo.ResReserved[resName] = res
+	}
+
+	gpuDetail := info.GPUDetail
+	for gpuIdx, gpuInfo := range gpuDetail {
+		numaInfo.GPUDetail[gpuIdx] = gpuInfo
 	}
 
 	return numaInfo

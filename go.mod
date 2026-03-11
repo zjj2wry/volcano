@@ -224,4 +224,5 @@ replace (
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.33.2
 	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin v0.33.2
 	k8s.io/sample-controller => k8s.io/sample-controller v0.33.2
+	volcano.sh/apis => <my fork version>/apis v0.0.0-20260122103028-9efc032f2e1e
 )

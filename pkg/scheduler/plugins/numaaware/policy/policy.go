@@ -60,10 +60,12 @@ func mergeFilteredHints(numaNodes []int, filteredHints [][]TopologyHint) Topolog
 	// This will only be returned if no better hint can be found when
 	// merging hints from each hint provider.
 	bestHint := TopologyHint{defaultAffinity, false}
+
 	iterateAllProviderTopologyHints(filteredHints, func(permutation []TopologyHint) {
 		// Get the NUMANodeAffinity from each hint in the permutation and see if any
 		// of them encode unpreferred allocations.
 		mergedHint := mergePermutation(numaNodes, permutation)
+
 		// Only consider mergedHints that result in a NUMANodeAffinity > 0 to
 		// replace the current bestHint.
 		if mergedHint.NUMANodeAffinity.Count() == 0 {

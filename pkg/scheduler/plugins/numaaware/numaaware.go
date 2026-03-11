@@ -35,6 +35,7 @@ import (
 	"volcano.sh/volcano/pkg/scheduler/framework"
 	"volcano.sh/volcano/pkg/scheduler/plugins/numaaware/policy"
 	"volcano.sh/volcano/pkg/scheduler/plugins/numaaware/provider/cpumanager"
+	"volcano.sh/volcano/pkg/scheduler/plugins/numaaware/provider/gpumanager"
 	"volcano.sh/volcano/pkg/scheduler/plugins/util"
 )
 
@@ -64,6 +65,7 @@ func New(arguments framework.Arguments) framework.Plugin {
 	}
 
 	plugin.hintProviders = append(plugin.hintProviders, cpumanager.NewProvider())
+	plugin.hintProviders = append(plugin.hintProviders, gpumanager.NewProvider())
 	return plugin
 }
 
@@ -122,6 +124,7 @@ func (pp *numaPlugin) OnSessionOpen(ssn *framework.Session) {
 		}
 
 		if fit, err := filterNodeByPolicy(task, node, pp.nodeResSets); !fit {
+			klog.Infof("Node %s failed policy filter: %v", node.Name, err)
 			if err != nil {
 				return api.NewFitError(task, node, err.Error())
 			}
@@ -169,12 +172,18 @@ func (pp *numaPlugin) OnSessionOpen(ssn *framework.Session) {
 	ssn.AddPredicateFn(pp.Name(), predicateFn)
 
 	batchNodeOrderFn := func(task *api.TaskInfo, nodeInfo []*api.NodeInfo) (map[string]float64, error) {
-		if _, found := pp.assignRes[task.UID]; !found || task.NumaInfo == nil || task.NumaInfo.Policy == "" || task.NumaInfo.Policy == "none" {
+		// Score only if predicate had results
+		pp.Lock()
+		assignRes, found := pp.assignRes[task.UID]
+		pp.Unlock()
+
+		if !found {
+			klog.V(4).Infof("[numaaware] Skipping score: no nodes passed predicate for task %s/%s", task.Namespace, task.Name)
 			return nil, nil
 		}
 
 		nodeScores := make(map[string]float64, len(nodeInfo))
-		scoreList := getNodeNumaNumForTask(nodeInfo, pp.assignRes[task.UID])
+		scoreList := getNodeNumaNumForTask(nodeInfo, assignRes)
 		util.NormalizeScore(api.DefaultMaxNodeScore, true, scoreList)
 
 		for idx, scoreNode := range scoreList {
@@ -183,7 +192,7 @@ func (pp *numaPlugin) OnSessionOpen(ssn *framework.Session) {
 			nodeScores[nodeName] = float64(scoreNode.Score)
 		}
 
-		klog.V(4).Infof("numa-aware plugin Score for task %s/%s is: %v",
+		klog.V(3).Infof("numa-aware plugin Score for task %s/%s is: %v",
 			task.Namespace, task.Name, nodeScores)
 		return nodeScores, nil
 	}
@@ -235,10 +244,35 @@ func getNodeNumaNumForTask(nodeInfo []*api.NodeInfo, resAssignMap map[string]api
 	nodeNumaCnts := make([]api.ScoredNode, len(nodeInfo))
 	workqueue.ParallelizeUntil(context.TODO(), 16, len(nodeInfo), func(index int) {
 		node := nodeInfo[index]
+
+		// Collect NUMA nodes from all allocated resources (CPU, GPU, etc.)
+		mask, _ := bitmask.NewBitMask()
+
+		// Add NUMA nodes from CPU allocation
 		assignCpus := resAssignMap[node.Name][string(v1.ResourceCPU)]
+		for _, cpuID := range assignCpus.List() {
+			if node.NumaSchedulerInfo != nil && node.NumaSchedulerInfo.CPUDetail != nil {
+				cpuDetail, ok := node.NumaSchedulerInfo.CPUDetail[cpuID]
+				if ok {
+					mask.Add(cpuDetail.NUMANodeID)
+				}
+			}
+		}
+
+		// Add NUMA nodes from GPU allocation
+		assignGpus := resAssignMap[node.Name]["nvidia.com/gpu"]
+		for _, gpuID := range assignGpus.List() {
+			if node.NumaSchedulerInfo != nil && node.NumaSchedulerInfo.GPUDetail != nil {
+				gpuInfo, ok := node.NumaSchedulerInfo.GPUDetail[fmt.Sprintf("%d", gpuID)]
+				if ok {
+					mask.Add(gpuInfo.NUMANodeID)
+				}
+			}
+		}
+
 		nodeNumaCnts[index] = api.ScoredNode{
 			NodeName: node.Name,
-			Score:    int64(getNumaNodeCntForCPUID(assignCpus, node.NumaSchedulerInfo.CPUDetail)),
+			Score:    int64(mask.Count()),
 		}
 	})
 

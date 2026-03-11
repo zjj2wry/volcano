@@ -1171,6 +1171,7 @@ func getNumaInfo(srcInfo *nodeinfov1alpha1.Numatopology) *schedulingapi.Numatopo
 		NumaResMap:  make(map[string]*schedulingapi.ResourceInfo),
 		CPUDetail:   topology.CPUDetails{},
 		ResReserved: make(v1.ResourceList),
+		GPUDetail:   make(map[string]nodeinfov1alpha1.GPUInfo),
 	}
 
 	policies := srcInfo.Spec.Policies
@@ -1198,6 +1199,11 @@ func getNumaInfo(srcInfo *nodeinfov1alpha1.Numatopology) *schedulingapi.Numatopo
 			SocketID:   detail.SocketID,
 			CoreID:     detail.CoreID,
 		}
+	}
+
+	gpuDetail := srcInfo.Spec.GPUDetail
+	for gpuIdx, gpuInfo := range gpuDetail {
+		numaInfo.GPUDetail[gpuIdx] = gpuInfo
 	}
 
 	resReserved, err := schedulingapi.ParseResourceList(srcInfo.Spec.ResReserved)
